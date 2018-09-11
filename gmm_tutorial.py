@@ -1,9 +1,89 @@
 # GMM tutorial
 import numpy as np
 from numpy.random import multivariate_normal as mvn
+from numpy.random import normal
 import matplotlib.pyplot as plt
 import sklearn
 
+from matplotlib import animation
+#  __ _____  
+# /_ |  __ \ 
+#  | | |  | |
+#  | | |  | |
+#  | | |__| |
+#  |_|_____/ 
+#
+
+normal_func = lambda x,mean,var : (1/np.sqrt(2*np.pi*var))*np.exp((-(x-mean)**2)/(2*var))
+# Generate data
+means = [5,10,15]
+var = [1,1,1]
+x_lab = [normal(means[i],var[i],300) for i in range(len(means))]
+for i in range(len(x_lab)):
+    plt.scatter(x_lab[i],(np.random.random(x_lab[i].size))*0.1)
+    x_range = np.linspace(np.min(np.asarray(x_lab)), np.max(np.asarray(x_lab)),100)
+    y_range = normal_func(x_range, means[i], var[i])
+    plt.plot(x_range,y_range)
+    
+x = np.asarray(x_lab).flatten()
+
+# For every cluster, calculate the proabability that all points belong to that cluster
+# Find the new mean and variance of the cluster by using the responsibilities calculated in the previous step
+class gmm_1d:
+    def __init__(self,data,clusters, max_iters, threshold):
+        self.data = data
+        self.clusters = clusters
+        self.mean = np.random.random(clusters)*np.mean(data)
+        self.var = np.random.random(clusters)*np.std(data)
+        self.probs = np.zeros((clusters,data.size))
+        self.max_iters = max_iters
+        self.iters = 0
+        self.threshold = threshold
+        self.likelihood = [0,1]
+    
+    def normal_func(x,mean,var):
+        return (1/np.sqrt(2*np.pi*var))*np.exp((-(x-mean)**2)/(2*var))
+    
+    def plot_data(self):
+        plt.figure()
+        for cluster in range(self.clusters):
+            x_range = np.linspace(np.min(self.data), np.max(self.data),100)
+            y_range = normal_func(x_range, self.mean[cluster], self.var[cluster])
+            plt.plot(x_range,y_range)
+            plt.scatter(self.data,(np.random.random(self.data.size))*0.1,c = self.probs.T)
+    
+    def e_step(self):
+        for cluster in range(self.clusters):
+            for point in range(self.data.size):
+                self.probs[cluster,point] = normal_func(self.data[point],self.mean[cluster],self.var[cluster])
+        self.likelihood.append(np.sum(np.log(self.probs)))
+    
+    def m_step(self):
+        self.probs = np.divide(self.probs,np.sum(self.probs,axis=0))
+        for cluster in range(self.clusters):
+            self.mean[cluster] = np.sum(np.multiply(self.data,self.probs[cluster,:]))/np.sum(self.probs[cluster,:])
+            self.var[cluster] = np.sum(np.multiply((self.data-self.mean[cluster])**2,self.probs[cluster,:]))/np.sum(self.probs[cluster,:])
+            
+    def fit_model(self):
+        #while np.abs((self.likelihood[-1] - self.likelihood[-2]) > self.threshold) and self.iters < self.max_iters:
+        while self.iters < self.max_iters:
+            self.e_step()
+            self.m_step()
+            #self.plot_data()
+            model.iters += 1
+
+model = gmm_1d(x,3,100,1e-9)
+model.fit_model()
+model.plot_data()
+model.e_step()
+model.m_step()            
+    
+
+# =============================================================================
+# def normal_func(x,mean,var):
+#     return (1/np.sqrt(2*np.pi()*var))*np.exp((-(x-mean)**2)/(2*var))
+# 
+# =============================================================================
 #   _____                           _         _____        _        
 #  / ____|                         | |       |  __ \      | |       
 # | |  __  ___ _ __   ___ _ __ __ _| |_ ___  | |  | | __ _| |_ __ _ 
