@@ -7,6 +7,7 @@ import sklearn
 
 import multiprocessing as mp
 from matplotlib import animation
+from mpl_toolkits.mplot3d import Axes3D
 #  __ _____  
 # /_ |  __ \ 
 #  | | |  | |
@@ -130,7 +131,7 @@ class gmm_mv:
     def mv_normal_func(self,x,means,cov_mat): 
         # means and x are column vectors
         # Housekeeping to keep dimensions straight
-        means.shape = (len(means),1)
+        means.shape = (means.size,1)
         x.shape = (len(x),1)
         x_sub = x - means 
         return np.exp(-0.5*np.matmul(x_sub.T,np.matmul(np.linalg.inv(cov_mat),x_sub)))/(np.sqrt(((2*np.pi)**means.size)*np.linalg.det(cov_mat)))                                                 
@@ -138,7 +139,7 @@ class gmm_mv:
     def plot_data2d(self):
         for cluster in range(self.clusters):
             means = self.mean[cluster]
-            means.shape = (len(means),1)
+            means.shape = (means.size,1)
             cov_mat = self.var[cluster]
             x_range = np.linspace(np.min(self.data[0,:]),np.max(self.data[0,:]),100)
             y_range = np.linspace(np.min(self.data[1,:]),np.max(self.data[1,:]),100)
@@ -189,7 +190,7 @@ def mv_normal_func(x,means,cov_mat):
     return np.exp(-0.5*np.matmul(x_sub.T,np.matmul(np.linalg.inv(cov_mat),x_sub)))/(np.sqrt(((2*np.pi)**means.size)*np.linalg.det(cov_mat)))                                                 
 
 def plot_data2d(x,means,cov_mat):
-    means.shape = (len(means),1)
+    means.shape = (means.size,1)
     x_range = np.linspace(np.min(x[0,:]),np.max(x[0,:]),100)
     y_range = np.linspace(np.min(x[1,:]),np.max(x[1,:]),100)
     z = np.empty(len(x_range)*len(y_range))
@@ -202,19 +203,42 @@ def plot_data2d(x,means,cov_mat):
     z.shape = xv.shape
     plt.contour(xv,yv,z)
 
-means = np.asarray([[1,2],[7,8],[1,20]])
-# Array gets reshaped as [1,2,3,4]
-# | 1 2 |
-# | 3 4 |
-covs = [[2,1,1,2],[5,2,2,5],[1,1,1,30]]
-covs = np.asarray([np.reshape(np.array(i),(2,2)) for i in covs])
+def run_gmm_mv(data, dims, clusters, max_iters, threshold, seed):
+    np.random.seed(seed)
+    model = gmm_mv(data, dims, clusters, max_iters, threshold)
+    model.fit_model()
+    return model
+
+def run_gmm_mv_multi(data, dims, clusters, max_iters, threshold, num_seeds):
+    pool = mp.Pool(processes = mp.cpu_count())
+    results = [pool.apply_async(run_gmm_mv, args = (data, dims, clusters, max_iters, threshold,i)) for i in range(num_seeds)]
+    output = [p.get() for p in results]
+    pool.close()
+    pool.join()
+    
+    all_liks = []
+    for seed in output:
+        all_liks.append(seed.log_likelihood[-1])
+    fin_model = output[np.nanargmax(all_liks)]  
+    
+    return fin_model
+
+
+dims = 3
+clusters = 3
+means = [np.random.rand(1,dims)*10 for i in range(clusters)]
+covs = [np.eye(dims)*np.random.random()*2 for i in range(clusters)]
 
 # Labelled data for plotting
 x_lab=[]
-x_lab = [mvn(means[i,:],covs[i,:,:],500) for i in range(len(means))]
+x_lab = [mvn(means[i].flatten(),covs[i],500) for i in range(len(means))]
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
 for i in range(len(means)):
-    plt.scatter(x_lab[i][:,0],x_lab[i][:,1])
-    plot_data2d(x_lab[i].T, means[i],covs[i])
+    ax.scatter(x_lab[i][:,0],x_lab[i][:,1],x_lab[i][:,2])
+    #plt.scatter(x_lab[i][:,0],x_lab[i][:,1])
+    #plot_data2d(x_lab[i].T, means[i],covs[i])
 
 
 # Unlabelled data for EM
@@ -222,174 +246,14 @@ x = np.vstack(x_lab).T
 
 # Plotting is funky for some reason
 # Estimated paramters are correct!!
-model = gmm_mv(x,2,3,1000,1e-6)
-model.plot_data2d()
-model.fit_model()
-plt.figure()
-model.plot_data2d()
-
-##########################################################################
-###########################################################################
-#   _____                           _         _____        _        
-#  / ____|                         | |       |  __ \      | |       
-# | |  __  ___ _ __   ___ _ __ __ _| |_ ___  | |  | | __ _| |_ __ _ 
-# | | |_ |/ _ \ '_ \ / _ \ '__/ _` | __/ _ \ | |  | |/ _` | __/ _` |
-# | |__| |  __/ | | |  __/ | | (_| | ||  __/ | |__| | (_| | || (_| |
-#  \_____|\___|_| |_|\___|_|  \__,_|\__\___| |_____/ \__,_|\__\__,_|
-#
-
-means = np.asarray([[1,2],[7,8],[1,20]])
-# Array gets reshaped as [1,2,3,4]
-# | 1 2 |
-# | 3 4 |
-covs = [[2,1,1,2],[5,2,2,5],[1,1,1,30]]
-covs = np.asarray([np.reshape(np.array(i),(2,2)) for i in covs])
-
-# Labelled data for plotting
-x_lab=[]
-x_lab = [mvn(means[i,:],covs[i,:,:],500) for i in range(len(means))]
-for i in range(len(means)):
-    plt.scatter(x_lab[i][:,0],x_lab[i][:,1])
-
-# Unlabelled data for EM
-x = np.asarray(x_lab)
-x = np.reshape(x,(x.shape[0]*x.shape[1],x.shape[2]))
-plt.scatter(x[:,0],x[:,1])
-    
-#  ______ __  __ 
-# |  ____|  \/  |
-# | |__  | \  / |
-# |  __| | |\/| |
-# | |____| |  | |
-# |______|_|  |_|
-#
-# Equations taken from
-# http://www.cse.iitm.ac.in/~vplab/courses/DVP/PDF/gmm.pdf
-# Pg 9
-# Numer = numerator, denom = denominator
-
-########## Define functions ##########
-def unit_lik(x_vec,mu_vec,sig_mat):
-    val = np.exp(-0.5*np.matmul(np.matmul(np.subtract(x_vec,mu_vec), np.linalg.inv(sig_mat)),np.subtract(x_vec,mu_vec))) / (np.sqrt(np.linalg.det(sig_mat))*((2*np.pi)**2))
-    return val
-
-# dat = N X dims
-# mu = clusts X dims
-# sig = (dims X clusts) X clusts, so 6x2 for 2D with 3 clusters
-def dat_log_lik(dat,mu,sig,pi):
-    all_log_liks = np.zeros((dat.shape[0],len(pi)))
-    for dat_point in range(dat.shape[0]):
-        for clust in range(len(pi)):
-            all_log_liks[dat_point,clust] = unit_lik(x[dat_point,:],mu[clust,:],sig[(clust*2):(clust*2)+2,:])
-    fin_log_lik = np.sum(np.log(np.matmul(all_log_liks,pi)))
-    return fin_log_lik
-
-def resp(dat,mu,sig,pi):
-    all_resps = np.zeros((dat.shape[0],len(pi)))
-    for dat_point in range(dat.shape[0]):
-        for clust in range(len(pi)):
-            all_resps[dat_point,clust] = unit_lik(x[dat_point,:],mu[clust,:],sig[(clust*2):(clust*2)+2,:])
-    numer = np.multiply(all_resps,pi)
-    denom = np.sum(numer,axis=1)
-    fin_resps = np.zeros((len(denom),len(pi)))
-    for i in range(len(denom)):
-        fin_resps[i] = numer[i,:]/denom[i]
-        
-    return fin_resps
-
-def mu_prime(dat, resps):
-    mu_p = np.zeros((resps.shape[1],2))
-    for i in range(dat.shape[1]):
-        mu_p[:,i] = np.divide(np.matmul(dat[:,i].T,resps),np.sum(resps,axis=0))
-    return mu_p
-
-def sig_prime(dat, mu_prime, resps):
-    sig_p = np.zeros((resps.shape[1]*2,2))
-    for clust in range(resps.shape[1]):
-        all_numer = np.ndarray((dat.shape[1],dat.shape[1],dat.shape[0]))
-        for dat_point in range(dat.shape[0]):
-            temp_var = np.reshape(dat[dat_point,:] - mu_prime[clust,:],(2,1))
-            all_numer[:,:,dat_point] = np.matmul(temp_var,temp_var.T)*resps[dat_point,clust]
-        sig_p[(clust*2):(clust*2)+2,:] = np.sum(all_numer,axis=2)/np.sum(resps[:,clust]) 
-    return sig_p
-
-def pi_prime(resps):
-    pi_p = np.mean(resps,axis=0)
-    return pi_p
-
-def plot_dat(dat,mu,sig,bins):
-    fig = plt.figure()
-    plt.scatter(dat[:,0],dat[:,1])
-    x_min, x_max = np.min(dat[:,0]), np.max(dat[:,0])
-    y_min, y_max = np.min(dat[:,1]), np.max(dat[:,1])
-    x = np.arange(x_min,x_max,(x_max-x_min)/bins)
-    y = np.arange(y_min,y_max,(y_max-y_min)/bins)
-    X, Y = np.meshgrid(x, y)
-    
-    x_p = np.reshape(X,X.shape[0]**2)
-    y_p = np.reshape(Y,Y.shape[0]**2)
-    xy = np.unique(np.stack((x_p,y_p)),axis=0).T
-    
-    Z = np.zeros((xy.shape[0],mu.shape[0]))
-    for dat_point in range(xy.shape[0]):
-        for clust in range(mu.shape[0]):
-             Z[dat_point,clust] = unit_lik(xy[dat_point,:],mu[clust,:],sig[(clust*2):(clust*2)+2,:])
-    
-    for clust in range(Z.shape[1]):
-       plt.contour(X,Y,np.reshape(Z[:,clust],(bins,bins)))
-       
-    fig.show()
-    
-       
-    
-    
-        
-
-############## Initialize parameters #################
-clusters = 3
-
-mu0_min, mu0_max = np.min(x[:,0]), np.max(x[:,0])
-mu1_min, mu1_max = np.min(x[:,1]), np.max(x[:,1])
-mu0_in = (np.random.random((clusters,1))*(mu0_max-mu0_min))+ mu0_min
-mu1_in = (np.random.random((clusters,1))*(mu1_max-mu1_min))+ mu1_min
-mu_in = np.concatenate((mu0_in,mu1_in),axis=1)
-
-dat_var0, dat_var1 = np.var(x[:,0])/clusters, np.var(x[:,1])/clusters
-sig_in = np.tile(np.reshape(np.asarray([dat_var0,0,0,dat_var1]),(2,2)),(clusters,1))
-
-pi_in = np.random.rand(3)
-pi_in = pi_in/np.sum(pi_in)
-      
-########### Run EM #############    
-  
-tolerance = 1e-9
-max_iters = 300  
-
-all_log_lik = []
-all_log_lik.append(0)
-all_log_lik.append(dat_log_lik(x,mu_in,sig_in,pi_in))
-resps = resp(x,mu_in,sig_in,pi_in)
-
-while np.abs(all_log_lik[-1] - all_log_lik[-2]) > tolerance:
-#while len(all_log_lik) < max_iters:
-    mu_p = mu_prime(x,resps)
-    sig_p = sig_prime(x,mu_p,resps)
-    pi_p = pi_prime(resps)
-    resps_p = resp(x,mu_p,sig_p,pi_p)
-    all_log_lik.append(dat_log_lik(x,mu_p,sig_p,pi_p))
-    print(np.abs(all_log_lik[-1] - all_log_lik[-2]))
-    plot_dat(x,mu_p,sig_p,100)
+model = run_gmm_mv_multi(x,dims,clusters,1e3,1e-9,20)
 
 
-# Test case
-# =============================================================================
-# x1_vec = np.asarray([1.1,2.1])
-# x2_vec = np.asarray([0.5,0.5])
-# mu_vec = np.asarray([1,2])
-# sig_mat = np.reshape(np.asarray([2,1,1,2]),(2,2))
-# 
-# print(unit_lik(x1_vec,mu_vec,sig_mat))
-# print(unit_lik(x2_vec,mu_vec,sig_mat))
-# =============================================================================
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+col_map = plt.get_cmap('viridis')
+colors = np.sum(np.multiply(model.resps,np.asarray(range(1,clusters+1))[:,None]),axis=0)/clusters
+#colors = np.multiply(model.resps,np.asarray(range(1,clusters+1))[:,None])/clusters
+ax.scatter(xs=x[:,0],ys=x[:,1],zs=x[:,2],c=col_map(colors))
     
 
