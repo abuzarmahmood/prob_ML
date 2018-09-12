@@ -99,7 +99,8 @@ model = run_gmm_1d_multi(x,4,1000,1e-6,20)
 print(model.likelihood[-1])
 model.plot_data()
      
-    
+###############################################################################
+###############################################################################    
 
 #  __  __       _ _   _        _____  _           
 # |  \/  |     | | | (_)      |  __ \(_)          
@@ -108,6 +109,98 @@ model.plot_data()
 # | |  | | |_| | | |_| |      | |__| | | | | | | |
 # |_|  |_|\__,_|_|\__|_|      |_____/|_|_| |_| |_|
 #
+
+class gmm_mv:
+    
+    def __init__(self, data, dims, clusters, max_iters, threshold):
+        self.data = data
+        self.dims = dims
+        self.clusters = clusters
+        self.mean = [np.random.rand(dims)*np.max(data,axis=-1) for i in range(clusters)]
+        self.var = [np.eye(dims)*np.std(data) for i in range(clusters)]
+        self.probs = np.zeros((clusters,data.shape[-1]))
+        self.resps = np.zeros((clusters,data.shape[-1]))
+        self.max_iters = max_iters
+        self.iters = 0
+        self.threshold = threshold
+        self.log_likelihood = [0,1]
+        mixing = np.random.random(clusters)
+        self.mixing = (mixing/np.sum(mixing))[:,None]
+        
+    def mv_normal_func(self,x,means,cov_mat): 
+        # means and x are column vectors
+        # Housekeeping to keep dimensions straight
+        means.shape = (len(means),1)
+        x.shape = (len(x),1)
+        x_sub = x - means 
+        return np.exp(-0.5*np.matmul(x_sub.T,np.matmul(np.linalg.inv(cov_mat),x_sub)))/(np.sqrt(((2*np.pi)**means.size)*np.linalg.det(cov_mat)))                                                 
+
+    def plot_data2d(self):
+        for cluster in range(self.clusters):
+            means = self.mean[cluster]
+            means.shape = (len(means),1)
+            cov_mat = self.var[cluster]
+            x_range = np.linspace(np.min(self.data[0,:]),np.max(self.data[0,:]),100)
+            y_range = np.linspace(np.min(self.data[1,:]),np.max(self.data[1,:]),100)
+            z = np.empty(len(x_range)*len(y_range))
+            i = 0
+            for this_x in x_range:
+                for this_y in y_range:
+                    z[i] = self.mv_normal_func(np.asarray([this_x,this_y])[:,None],means,cov_mat)
+                    i += 1
+            xv, yv = np.meshgrid(x_range,y_range)
+            z.shape = xv.shape
+            plt.contour(xv,yv,z)
+        plt.scatter(self.data[0,:],self.data[1,:])
+        
+    def e_step(self):
+        for cluster in range(self.clusters):
+            for point in range(self.data.shape[-1]):
+                self.probs[cluster,point] = self.mv_normal_func(self.data[:,point],self.mean[cluster],self.var[cluster])
+        temp_resps = np.multiply(self.probs,self.mixing)
+        self.resps = np.divide(temp_resps,np.sum(temp_resps,axis=0))
+    
+    def m_step(self):
+        for cluster in range(self.clusters):
+            self.mean[cluster] = np.divide(np.sum(np.multiply(self.data,self.resps[cluster,:]),axis=-1),np.sum(self.resps[cluster,:]))
+            x_sub_sq = (self.data-self.mean[cluster][:,None])
+            cov_array = np.zeros((x_sub_sq.shape[0],x_sub_sq.shape[0],self.data.shape[-1]))
+            for i in range(cov_array.shape[-1]):
+                cov_array[:,:,i] = np.matmul(x_sub_sq[:,i][:,None],x_sub_sq[:,i][:,None].T)
+            self.var[cluster] = np.sum(np.multiply(cov_array,self.resps[cluster,:]),axis=-1)/np.sum(self.resps[cluster,:])
+        self.mixing = (np.sum(self.resps,axis = 1)/ np.sum(self.resps))[:,None]
+        self.log_likelihood.append(np.sum(np.log(np.sum(np.multiply(self.probs,self.mixing),axis=0))))
+            
+    def fit_model(self):
+        while (np.abs(self.log_likelihood[-1] - self.log_likelihood[-2]) > self.threshold) and (self.iters < self.max_iters):
+            self.e_step()
+            self.m_step()
+            #plt.figure()
+            #self.plot_data2d()
+            model.iters += 1
+
+
+def mv_normal_func(x,means,cov_mat): 
+    # means and x are column vectors
+    # Housekeeping to keep dimensions straight
+    means.shape = (len(means),1)
+    x.shape = (len(x),1)
+    x_sub = x - means 
+    return np.exp(-0.5*np.matmul(x_sub.T,np.matmul(np.linalg.inv(cov_mat),x_sub)))/(np.sqrt(((2*np.pi)**means.size)*np.linalg.det(cov_mat)))                                                 
+
+def plot_data2d(x,means,cov_mat):
+    means.shape = (len(means),1)
+    x_range = np.linspace(np.min(x[0,:]),np.max(x[0,:]),100)
+    y_range = np.linspace(np.min(x[1,:]),np.max(x[1,:]),100)
+    z = np.empty(len(x_range)*len(y_range))
+    i = 0
+    for this_x in x_range:
+        for this_y in y_range:
+            z[i] = mv_normal_func(np.asarray([this_x,this_y])[:,None],means,cov_mat)
+            i += 1
+    xv, yv = np.meshgrid(x_range,y_range)
+    z.shape = xv.shape
+    plt.contour(xv,yv,z)
 
 means = np.asarray([[1,2],[7,8],[1,20]])
 # Array gets reshaped as [1,2,3,4]
@@ -121,53 +214,22 @@ x_lab=[]
 x_lab = [mvn(means[i,:],covs[i,:,:],500) for i in range(len(means))]
 for i in range(len(means)):
     plt.scatter(x_lab[i][:,0],x_lab[i][:,1])
+    plot_data2d(x_lab[i].T, means[i],covs[i])
+
 
 # Unlabelled data for EM
-x = np.asarray(x_lab)
-x = np.reshape(x,(x.shape[2],x.shape[0]*x.shape[1]))
-plt.scatter(x[:,0],x[:,1])
+x = np.vstack(x_lab).T
 
-class gmm_mv:
-    
-    def __init__(self, data, dims, clusters, max_iters, threshold):
-        self.data = data
-        self.dims = dims
-        self.clusters = clusters
-        self.mean = np.random.rand((dims,clusters))*np.mean(data)
-        self.var = np.random.random((dims,clusters))*np.std(data)
-        self.probs = np.zeros((dims,clusters,data.size))
-        self.max_iters = max_iters
-        self.iters = 0
-        self.threshold = threshold
-        self.likelihood = [0,1]
-        
-    def mv_normal_func(x,means,cov_mat): 
-        # means is column vectors
-        # every column in x is a data point
-        # Housekeeping to keep dimensions straight
-        means.shape = (len(means),1)
-        #x_sub = x - means
-        out = np.empty(x.shape[1])
-        for i in range(x.shape[1]):    
-            out[i] = np.exp(-0.5*np.matmul((x[:,i][:,None]-means).T,np.matmul(np.linalg.inv(cov_mat),(x[:,i][:,None]-means))))/(np.sqrt(((2*np.pi)**means.size)*np.linalg.det(cov_mat)))                                                 
-        return out
+# Plotting is funky for some reason
+# Estimated paramters are correct!!
+model = gmm_mv(x,2,3,1000,1e-6)
+model.plot_data2d()
+model.fit_model()
+plt.figure()
+model.plot_data2d()
 
-    def plot_data2d(means,cov_mat):
-        means.shape = (len(means),1)
-        x_range = np.linspace(np.min(x[0,:]),np.max(x[0,:]),100)
-        y_range = np.linspace(np.min(x[1,:]),np.max(x[1,:]),100)
-        z = np.empty(len(x_range)*len(y_range))
-        i = 0
-        for this_x in x_range:
-            for this_y in y_range:
-                z[i] = md_normal_func(np.asarray([this_x,this_y])[:,None],means,cov_mat)
-                i += 1
-        xv, yv = np.meshgrid(x_range,y_range)
-        z.shape = xv.shape
-        plt.contour(xv,yv,z)
-
-test = md_normal_func(np.stack([x_range,y_range]).T,means[0],covs[0])
-
+##########################################################################
+###########################################################################
 #   _____                           _         _____        _        
 #  / ____|                         | |       |  __ \      | |       
 # | |  __  ___ _ __   ___ _ __ __ _| |_ ___  | |  | | __ _| |_ __ _ 
